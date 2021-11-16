@@ -164,5 +164,5 @@ if($q->param('ean1')) {
   print $q->br(),$q->submit(-name => "  OK  ");
   print $q->end_form();
 
-  print "<BR>This calculation takes into account corrections for real gases. It does <em>not</em> use the van der Waals equation as that does not give quantitatively good results in the regime relevant to diving cylinders. Rather it uses the same <a href=https://github.com/subsurface/subsurface/blob/master/core/gas-model.c>polynomial fit</a> as <a href=https://subsurface-divelog.org>Subsurface<a>.";
+  print "<BR>This calculation takes into account corrections for real gases. It does <em>not</em> use the van der Waals equation as that does not give quantitatively good results in the regime relevant to diving cylinders. Rather it uses the same <a href=https://github.com/subsurface/subsurface/blob/master/core/gas-model.c>polynomial fit</a> as <a href=https://subsurface-divelog.org>Subsurface<a>. Code available on <a href=https://github.com/atdotde/realblender>GitHub</a>.";
 }
