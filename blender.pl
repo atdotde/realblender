@@ -144,7 +144,7 @@ if($q->param('ean1')) {
   print "Finally, top up with ", &gasname($gas2), " up to ", &r($pf), " bar and end up with ", &gasname($gasf), ".\n";
   
   print "<br>\n";
-  print "Use ", &r($top1), " litres of ", &gasname($gas1), " and ", &r($top2)," litres of ", &gasname($gas2), "per litre of cylinder volume.\n";
+  print "Use ", &r($top1), " litres of ", &gasname($gas1), " and ", &r($top2)," litres of ", &gasname($gas2), " per litre of cylinder volume.\n";
 } else {
   print $q->start_form();
   print "Current contents of cylinder: ",
