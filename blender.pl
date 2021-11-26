@@ -84,7 +84,7 @@ sub gasname {
   my ($mix) = shift;
 
   if(&fhe($mix)) {
-    return sprintf("TMP%d/%d", &fo2($mix) * 100 + 0.5, &fhe($mix) * 100 + 0.5);
+    return sprintf("TMX %d/%d", &fo2($mix) * 100 + 0.5, &fhe($mix) * 100 + 0.5);
   } else {
     if (&fo2($mix) == &fo2(&air)) {
       return "AIR";
@@ -107,62 +107,142 @@ my $q = CGI->new;
 print $q->header('text/html');
 print $q->h1('Real gas blender');
 
-if($q->param('ean1')) {
-  my $gasi = &nitrox($q->param('eani'));
-  my $gas1 = &nitrox($q->param('ean1'));
-  my $gas2 = &nitrox($q->param('ean2'));
-  my $gasf = &nitrox($q->param('eanf'));
+if ($q->param('o2i')) {
+  if ($q->param('hef') > 0) {
+    # We are mixing trimix
+    my $gasi = &trimix($q->param('o2i'), $q->param('hei'));
+    my $gas1 = &trimix($q->param('o21'), $q->param('he1'));
+    my $gas2 = &trimix($q->param('o22'), $q->param('he2'));
+    my $gas3 = &trimix($q->param('o23'), $q->param('he3'));
+    my $gasf = &trimix($q->param('o2f'), $q->param('hef'));
 
-  if (&fo2($gas1) == &fo2($gas2)) {
-    print "Cannot mix with idential gases!\n";
-    exit;
+    my $det = &fhe($gas3) * &fn2($gas2) * &fo2($gas1)
+      - &fhe($gas2) * &fn2($gas3) * &fo2($gas1)
+      - &fhe($gas3) * &fn2($gas1) * &fo2($gas2)
+      + &fhe($gas1) * &fn2($gas3) * &fo2($gas2)
+      + &fhe($gas2) * &fn2($gas1) * &fo2($gas3)
+      - &fhe($gas1) * &fn2($gas2) * &fo2($gas3);
+    
+    if (!$det) {
+      print "Cannot mix with degenerate gases!\n";
+      exit;
+    }
+  
+    my $pi = $q->param('pi');
+    my $pf = $q->param('pf');
+
+    my $ivol = &normalvolumefactor($pi, $gasi);
+    my $fvol = &normalvolumefactor($pf, $gasf);
+
+    my $top1 = ((&fn2($gas3) * &fo2($gas2) - &fn2($gas2) * &fo2($gas3)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
+      + (&fhe($gas2) * &fo2($gas3) - &fhe($gas3) * &fo2($gas2)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
+      + (&fhe($gas3) * &fn2($gas2) - &fhe($gas2) * &fn2($gas3)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+    
+    my $top2 = ((&fn2($gas1) * &fo2($gas3) - &fn2($gas3) * &fo2($gas1)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
+      + (&fhe($gas3) * &fo2($gas1) - &fhe($gas1) * &fo2($gas3)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
+      + (&fhe($gas1) * &fn2($gas3) - &fhe($gas3) * &fn2($gas1)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+    
+    my $top3 = ((&fn2($gas2) * &fo2($gas1) - &fn2($gas1) * &fo2($gas2)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
+      + (&fhe($gas1) * &fo2($gas2) - &fhe($gas2) * &fo2($gas1)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
+      + (&fhe($gas2) * &fn2($gas1) - &fhe($gas1) * &fn2($gas2)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+
+    if ($top1 < 0 || $top2 < 0 || $top3 < 0) {
+      print "Impossible to blend ", &gasname($gasf), " with these gases!\n";
+      exit;
+    }
+    my $newmix1 = &trimix(100 * (&fo2($gasi) * $ivol + &fo2($gas1) * $top1) / ($ivol + $top1),
+			 100 * (&fhe($gasi) * $ivol + &fhe($gas1) * $top1) / ($ivol + $top1));
+  
+    my $p1 = &find_p($newmix1, $ivol + $top1);
+
+    my $newmix2 = &trimix(100 * (&fo2($gasi) * $ivol + &fo2($gas1) * $top1 + &fo2($gas2) * $top2) / ($ivol + $top1 + $top2),
+			 100 * (&fhe($gasi) * $ivol + &fhe($gas1) * $top1 + &fhe($gas2) * $top2) / ($ivol + $top1 + $top2));
+  
+    my $p2 = &find_p($newmix2, $ivol + $top1 + $top2);
+
+    print "Start with ", &r($pi), " bar of ", &gasname($gasi), ".\n";
+    print "<br>\n";
+    print "Top up with ", &gasname($gas1), " up to ", &r($p1), " bar and end up with ", &gasname($newmix1), ".\n";
+    print "<br>\n";
+    print "Then top up with ", &gasname($gas2), " up to ", &r($p2), " bar and end up with ", &gasname($newmix2), ".\n";
+    print "<br>\n";
+    print "Finally, top up with ", &gasname($gas3), " up to ", &r($pf), " bar and end up with ", &gasname($gasf), ".\n";
+  
+    print "<br><hr>
+\n";
+    print "Use ", &r($top1), " litres of ", &gasname($gas1), ", ",
+      &r($top2), " litres of ", &gasname($gas2), " and ",
+      &r($top3)," litres of ", &gasname($gas3), " per litre of cylinder volume.\n";
+
+  } else {
+    # We are mixing nitrox
+    
+    my $gasi = &nitrox($q->param('o2i'));
+    my $gas1 = &nitrox($q->param('o21'));
+    my $gas2 = &nitrox($q->param('o23'));
+    my $gasf = &nitrox($q->param('o2f'));
+
+    if (&fo2($gas1) == &fo2($gas2)) {
+      print "Cannot mix with idential gases!\n";
+      exit;
+    }
+  
+    my $pi = $q->param('pi');
+    my $pf = $q->param('pf');
+
+    my $ivol = &normalvolumefactor($pi, $gasi);
+    my $fvol = &normalvolumefactor($pf, $gasf);
+
+    my $top1 = (&fo2($gas2) - &fo2($gasf)) / (&fo2($gas2) - &fo2($gas1)) * $fvol
+      - (&fo2($gas2) - &fo2($gasi)) / (&fo2($gas2) - &fo2($gas1)) * $ivol;
+    my $top2 = (&fo2($gas1) - &fo2($gasf)) / (&fo2($gas1) - &fo2($gas2)) * $fvol
+      - (&fo2($gas1) - &fo2($gasi)) / (&fo2($gas1) - &fo2($gas2)) * $ivol;
+
+    if ($top1 <= 0) {
+      print "Impossible to blend with these gases!\n";
+      exit;
+    }
+    my $newmix = &nitrox(100 * (&fo2($gasi) * $ivol + &fo2($gas1) * $top1) / ($ivol + $top1));
+  
+    my $p1 = &find_p($newmix, $ivol + $top1);
+  
+    print "Start with ", &r($pi), " bar of ", &gasname($gasi), ".\n";
+    print "<br>\n";
+    print "Top up with ", &gasname($gas1), " up to ", &r($p1), " bar and end up with ", &gasname($newmix), ".\n";
+    print "<br>\n";
+    print "Finally, top up with ", &gasname($gas2), " up to ", &r($pf), " bar and end up with ", &gasname($gasf), ".\n";
+  
+    print "<br>\n";
+    print "Use ", &r($top1), " litres of ", &gasname($gas1), " and ", &r($top2)," litres of ", &gasname($gas2), " per litre of cylinder volume.\n";
   }
   
-  my $pi = $q->param('pi');
-  my $pf = $q->param('pf');
-
-  my $ivol = &normalvolumefactor($pi, $gasi);
-  my $fvol = &normalvolumefactor($pf, $gasf);
-
-  my $top1 = (&fo2($gas2) - &fo2($gasf)) / (&fo2($gas2) - &fo2($gas1)) * $fvol
-    - (&fo2($gas2) - &fo2($gasi)) / (&fo2($gas2) - &fo2($gas1)) * $ivol;
-  my $top2 = (&fo2($gas1) - &fo2($gasf)) / (&fo2($gas1) - &fo2($gas2)) * $fvol
-    - (&fo2($gas1) - &fo2($gasi)) / (&fo2($gas1) - &fo2($gas2)) * $ivol;
-
-  if ($top1 <= 0) {
-    print "Impossible to blend with these gases!\n";
-    exit;
-  }
-  my $newmix = &nitrox(100 * (&fo2($gasi) * $ivol + &fo2($gas1) * $top1) / ($ivol + $top1));
-  
-  my $p1 = &find_p($newmix, $ivol + $top1);
-  
-  print "Start with ", &r($pi), " bar of ", &gasname($gasi), ".\n";
-  print "<br>\n";
-  print "Top up with ", &gasname($gas1), " up to ", &r($p1), " bar and end up with ", &gasname($newmix), ".\n";
-  print "<br>\n";
-  print "Finally, top up with ", &gasname($gas2), " up to ", &r($pf), " bar and end up with ", &gasname($gasf), ".\n";
-  
-  print "<br>\n";
-  print "Use ", &r($top1), " litres of ", &gasname($gas1), " and ", &r($top2)," litres of ", &gasname($gas2), " per litre of cylinder volume.\n";
 } else {
+  
   print $q->start_form();
   print "Current contents of cylinder: ",
-    $q->textfield(-name => 'pi'), " bar of EAN ",
-    $q->textfield(-name => 'eani'), ".\n<br>\n";
+    $q->textfield(-name => 'pi'), " bar of trimix ",
+    $q->textfield(-name => 'o2i'), '/',
+    $q->textfield(-name => 'hei', -default => '0'), ".\n<br>\n";
 
-  print "Target contents of cylinder: ",
-    $q->textfield(-name => 'pf'), " bar of EAN ",
-    $q->textfield(-name => 'eanf'), ".\n<br>\n";
+  print "Target contents of cylinder (leave He part 0 to mix nitrox): ",
+    $q->textfield(-name => 'pf'), " bar of trimix ",
+    $q->textfield(-name => 'o2f'), '/',
+    $q->textfield(-name => 'hef', -default => '0'), ".\n<br>\n";
   
-  print "First top up gas: EAN ",
-    $q->textfield(-name => 'ean1'), ".\n<br>\n";
+  print "First top up gas: trimix ",
+    $q->textfield(-name => 'o21'), '/',
+    $q->textfield(-name => 'he1', -default => '0'), ".\n<br>\n";
 
-  print "Second top up gas: EAN ",
-    $q->textfield(-name => 'ean2', -default => '21'), ".\n<br>\n";
+  print "Second top up gas: trimix (will not be used if target is nitrox) ",
+    $q->textfield(-name => 'o22'), '/',
+    $q->textfield(-name => 'he2', -default => '0'), ".\n<br>\n";
+  
+  print "Final top up gas: trimix ",
+    $q->textfield(-name => 'o23', -default => '21'), '/',
+    $q->textfield(-name => 'he3', -default => '0'), ".\n<br>\n";
 
   print $q->br(),$q->submit(-name => "  OK  ");
   print $q->end_form();
 
-  print "<BR>This calculation takes into account corrections for real gases. It does <em>not</em> use the van der Waals equation as that does not give quantitatively good results in the regime relevant to diving cylinders. Rather it uses the same <a href=https://github.com/subsurface/subsurface/blob/master/core/gas-model.c>polynomial fit</a> as <a href=https://subsurface-divelog.org>Subsurface<a>. Code available on <a href=https://github.com/atdotde/realblender>GitHub</a>.<br>Note that this calculation is only as good as the assumption that everything happens at room temperature. So fill slowly and wait for it to cool down.";
+  print "<BR>This calculation takes into account corrections for real gases. It does <em>not</em> use the van der Waals equation as that does not give quantitatively good results in the regime relevant to diving cylinders. Rather it uses the same <a href=https://github.com/subsurface/subsurface/blob/master/core/gas-model.c>polynomial fit</a> as <a href=https://subsurface-divelog.org>Subsurface<a>. Code available on <a href=https://github.com/atdotde/realblender>GitHub</a>.<br>Note that this calculation is only as good as the assumption that everything happens at room temperature. So fill slowly and wait for it to cool down. Another assumption is that the percentual composition does not change upon chanes of perssure, i.e. we assume all components compress in the same way.";
 }
