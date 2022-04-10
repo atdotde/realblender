@@ -42,6 +42,7 @@ sub virial {
   return $coef->[0] * $p + $coef->[1] * $p * $p + $coef->[2] * $p * $p * $p;
 }
 
+# Z = pV/nRT
 sub zfactor {
   my ($p, $gasmix) = @_;
 
@@ -50,6 +51,7 @@ sub zfactor {
   return 1 + &fo2($gasmix) * &virial($p, \@o2_coefficients) + &fhe($gasmix) * &virial($p, \@he_coefficients) + &fn2($gasmix) * &virial($p, \@n2_coefficients);
 }
 
+# By which factor is the volume at pressure $p smaller than at 1 bar?
 sub normalvolumefactor {
   my ($p, $gasmix) = @_;
 
@@ -70,12 +72,14 @@ sub air {
   return &nitrox(21);
 }
 
+# Find the pressure at which $targetv of gas is compressed to 1.
 sub find_p {
-  my ($mix, $targetv) = @_;
+  my ($mix, $originalv) = @_;
 
-  my $p = $targetv;
-  while(abs($targetv - &normalvolumefactor($p, $mix)) / $targetv > 0.000001) {
-    $p /= &normalvolumefactor($p, $mix) / $targetv;
+  my $p = $originalv;
+  while(abs(&zfactor(1, $mix)*$p - &zfactor($p, $mix)*$originalv) > 0.000001) {
+#    print "p=$p<br>\n";
+    $p = $originalv*&zfactor($p,$mix)/&zfactor(1, $mix);
   }
   return $p;
 }
@@ -134,17 +138,17 @@ if ($q->param('o2i')) {
     my $ivol = &normalvolumefactor($pi, $gasi);
     my $fvol = &normalvolumefactor($pf, $gasf);
 
-    my $top1 = ((&fn2($gas3) * &fo2($gas2) - &fn2($gas2) * &fo2($gas3)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
-      + (&fhe($gas2) * &fo2($gas3) - &fhe($gas3) * &fo2($gas2)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
-      + (&fhe($gas3) * &fn2($gas2) - &fhe($gas2) * &fn2($gas3)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+    my $top1 = ((&fn2($gas3) * &fo2($gas2) - &fn2($gas2) * &fo2($gas3)) * (&fhe($gasf) * $fvol - &fhe($gasi) * $ivol)
+      + (&fhe($gas2) * &fo2($gas3) - &fhe($gas3) * &fo2($gas2)) * (&fn2($gasf) * $fvol - &fn2($gasi) * $ivol)
+      + (&fhe($gas3) * &fn2($gas2) - &fhe($gas2) * &fn2($gas3)) * (&fo2($gasf) * $fvol - &fo2($gasi) * $ivol)) / $det;
     
-    my $top2 = ((&fn2($gas1) * &fo2($gas3) - &fn2($gas3) * &fo2($gas1)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
-      + (&fhe($gas3) * &fo2($gas1) - &fhe($gas1) * &fo2($gas3)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
-      + (&fhe($gas1) * &fn2($gas3) - &fhe($gas3) * &fn2($gas1)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+    my $top2 = ((&fn2($gas1) * &fo2($gas3) - &fn2($gas3) * &fo2($gas1)) * (&fhe($gasf) * $fvol - &fhe($gasi) * $ivol)
+      + (&fhe($gas3) * &fo2($gas1) - &fhe($gas1) * &fo2($gas3)) * (&fn2($gasf) * $fvol - &fn2($gasi) * $ivol)
+      + (&fhe($gas1) * &fn2($gas3) - &fhe($gas3) * &fn2($gas1)) * (&fo2($gasf) * $fvol - &fo2($gasi) * $ivol)) / $det;
     
-    my $top3 = ((&fn2($gas2) * &fo2($gas1) - &fn2($gas1) * &fo2($gas2)) * (&fhe($gasf) * $pf - &fhe($gasi) * $pi)
-      + (&fhe($gas1) * &fo2($gas2) - &fhe($gas2) * &fo2($gas1)) * (&fn2($gasf) * $pf - &fn2($gasi) * $pi)
-      + (&fhe($gas2) * &fn2($gas1) - &fhe($gas1) * &fn2($gas2)) * (&fo2($gasf) * $pf - &fo2($gasi) * $pi)) / $det;
+    my $top3 = ((&fn2($gas2) * &fo2($gas1) - &fn2($gas1) * &fo2($gas2)) * (&fhe($gasf) * $fvol - &fhe($gasi) * $ivol)
+      + (&fhe($gas1) * &fo2($gas2) - &fhe($gas2) * &fo2($gas1)) * (&fn2($gasf) * $fvol - &fn2($gasi) * $ivol)
+      + (&fhe($gas2) * &fn2($gas1) - &fhe($gas1) * &fn2($gas2)) * (&fo2($gasf) * $fvol - &fo2($gasi) * $ivol)) / $det;
 
     if ($top1 < 0 || $top2 < 0 || $top3 < 0) {
       print "Impossible to blend ", &gasname($gasf), " with these gases!\n";
@@ -159,6 +163,9 @@ if ($q->param('o2i')) {
 			 100 * (&fhe($gasi) * $ivol + &fhe($gas1) * $top1 + &fhe($gas2) * $top2) / ($ivol + $top1 + $top2));
   
     my $p2 = &find_p($newmix2, $ivol + $top1 + $top2);
+
+#    print "ivol=$ivol top1=$top1 top2=$top2 zfactor=", &zfactor($p2,$gas2), " normalvolumefactor=", &normalvolumefactor($p2,$gas2), " p2=$p2<br>\n"; 
+#    print "zfactor=", &zfactor($pf,$gasf), " normalvolumefactor=", &normalvolumefactor($pf,$gasf), " pf=$pf fvol=$fvol findp=", &find_p($gasf, $ivol+$top1+$top2+$top3)," <br>\n"; 
 
     print "Start with ", &r($pi), " bar of ", &gasname($gasi), ".\n";
     print "<br>\n";
