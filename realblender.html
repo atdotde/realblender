@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real Gas Blender Calculator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: inline-block;
+            width: 200px;
+        }
+        input[type="number"] {
+            width: 60px;
+            margin: 0 5px;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real Gas Blender</h1>
+    
+    <div class="input-group">
+        <label>Current cylinder contents:</label>
+        <input type="number" id="pi" step="1" placeholder="bar"> bar of trimix
+        <input type="number" id="o2i" step="0.1" value="21" placeholder="O2">/<input type="number" id="hei" step="0.1" value="0" placeholder="He">
+    </div>
+
+    <div class="input-group">
+        <label>Target contents:</label>
+        <input type="number" id="pf" step="1" placeholder="bar"> bar of trimix
+        <input type="number" id="o2f" step="0.1" value="21" placeholder="O2">/<input type="number" id="hef" step="0.1" value="0" placeholder="He">
+    </div>
+
+    <div class="input-group">
+        <label>First top up gas:</label>
+        trimix <input type="number" id="o21" step="0.1" value="21" placeholder="O2">/<input type="number" id="he1" step="0.1" value="0" placeholder="He">
+    </div>
+
+    <div class="input-group">
+        <label>Second top up gas:</label>
+        trimix <input type="number" id="o22" step="0.1" value="21" placeholder="O2">/<input type="number" id="he2" step="0.1" value="0" placeholder="He">
+    </div>
+
+    <div class="input-group">
+        <label>Final top up gas:</label>
+        trimix <input type="number" id="o23" step="0.1" value="21" placeholder="O2">/<input type="number" id="he3" step="0.1" value="0" placeholder="He">
+    </div>
+
+    <div id="results"></div>
+
+    <p><small>This calculation takes into account corrections for real
+    gases. It uses the same polynomial fit as Subsurface. Note that
+    this calculation assumes room temperature conditions. Fill slowly
+    and wait for it to cool down.</small></p>
+
+    <p>This script is by Robert C. Helling (<a
+    href="mailto:helling@atdotde.de">helling@atdotde.de</a>). Find its
+    source on <a
+    href="https://github.com/atdotde/realblender">Github</a> and more
+    information at <a href="https://thetheoreticaldiver.org/wordpress/index.php/tag/real-gas/">TheTheoreticalDiver<a>. 
+
+    <script>
+        // Gas coefficients from the original code
+        const O2_COEFFICIENTS = [-7.18092073703e-04, 2.81852572808e-06, -1.50290620492e-09];
+        const N2_COEFFICIENTS = [-2.19260353292e-04, 2.92844845532e-06, -2.07613482075e-09];
+        const HE_COEFFICIENTS = [4.87320026468e-04, -8.83632921053e-08, 5.33304543646e-11];
+
+        // Utility functions
+        const fo2 = (gasmix) => gasmix.o2 / 100;
+        const fhe = (gasmix) => gasmix.he / 100;
+        const fn2 = (gasmix) => (100 - gasmix.o2 - gasmix.he) / 100;
+
+        function virial(p, coef) {
+            return coef[0] * p + coef[1] * p * p + coef[2] * p * p * p;
+        }
+
+        function zfactor(p, gasmix) {
+            return 1 + fo2(gasmix) * virial(p, O2_COEFFICIENTS) + 
+                   fhe(gasmix) * virial(p, HE_COEFFICIENTS) + 
+                   fn2(gasmix) * virial(p, N2_COEFFICIENTS);
+        }
+
+        function normalvolumefactor(p, gasmix) {
+            return p * zfactor(1, gasmix) / zfactor(p, gasmix);
+        }
+
+        function find_p(mix, originalv) {
+            let p = originalv;
+            while(Math.abs(zfactor(1, mix) * p - zfactor(p, mix) * originalv) > 0.000001) {
+                p = originalv * zfactor(p, mix) / zfactor(1, mix);
+            }
+            return p;
+        }
+
+        function gasname(mix) {
+            if(fhe(mix)) {
+                return `TMX ${Math.round(fo2(mix) * 100)}/${Math.round(fhe(mix) * 100)}`;
+            } else {
+                if (fo2(mix) * 100 === 21) {
+                    return "AIR";
+                } else {
+                    return `EAN${Math.round(fo2(mix) * 100)}`;
+                }
+            }
+        }
+
+        function roundToOne(num) {
+            return Math.round(num * 10) / 10;
+        }
+
+        function calculateMix() {
+            const results = document.getElementById('results');
+            
+            // Get all input values
+            const inputs = {
+                pi: parseFloat(document.getElementById('pi').value),
+                pf: parseFloat(document.getElementById('pf').value),
+                o2i: parseFloat(document.getElementById('o2i').value),
+                o2f: parseFloat(document.getElementById('o2f').value),
+                hei: parseFloat(document.getElementById('hei').value) || 0,
+                hef: parseFloat(document.getElementById('hef').value) || 0,
+                o21: parseFloat(document.getElementById('o21').value),
+                o22: parseFloat(document.getElementById('o22').value),
+                o23: parseFloat(document.getElementById('o23').value),
+                he1: parseFloat(document.getElementById('he1').value) || 0,
+                he2: parseFloat(document.getElementById('he2').value) || 0,
+                he3: parseFloat(document.getElementById('he3').value) || 0
+            };
+
+            // Check if we have all required values
+            if (Object.values(inputs).some(isNaN)) {
+                results.innerHTML = '';
+                return;
+            }
+
+            try {
+                if (inputs.hef > 0) {
+                    // Trimix calculation
+                    const gasi = {o2: inputs.o2i, he: inputs.hei};
+                    const gas1 = {o2: inputs.o21, he: inputs.he1};
+                    const gas2 = {o2: inputs.o22, he: inputs.he2};
+                    const gas3 = {o2: inputs.o23, he: inputs.he3};
+                    const gasf = {o2: inputs.o2f, he: inputs.hef};
+
+                    const det = fhe(gas3) * fn2(gas2) * fo2(gas1)
+                        - fhe(gas2) * fn2(gas3) * fo2(gas1)
+                        - fhe(gas3) * fn2(gas1) * fo2(gas2)
+                        + fhe(gas1) * fn2(gas3) * fo2(gas2)
+                        + fhe(gas2) * fn2(gas1) * fo2(gas3)
+                        - fhe(gas1) * fn2(gas2) * fo2(gas3);
+
+                    if (!det) {
+                        results.innerHTML = '<div class="error">Cannot mix with degenerate gases!</div>';
+                        return;
+                    }
+
+                    const ivol = normalvolumefactor(inputs.pi, gasi);
+                    const fvol = normalvolumefactor(inputs.pf, gasf);
+
+                    const top1 = ((fn2(gas3) * fo2(gas2) - fn2(gas2) * fo2(gas3)) * (fhe(gasf) * fvol - fhe(gasi) * ivol)
+                        + (fhe(gas2) * fo2(gas3) - fhe(gas3) * fo2(gas2)) * (fn2(gasf) * fvol - fn2(gasi) * ivol)
+                        + (fhe(gas3) * fn2(gas2) - fhe(gas2) * fn2(gas3)) * (fo2(gasf) * fvol - fo2(gasi) * ivol)) / det;
+
+                    const top2 = ((fn2(gas1) * fo2(gas3) - fn2(gas3) * fo2(gas1)) * (fhe(gasf) * fvol - fhe(gasi) * ivol)
+                        + (fhe(gas3) * fo2(gas1) - fhe(gas1) * fo2(gas3)) * (fn2(gasf) * fvol - fn2(gasi) * ivol)
+                        + (fhe(gas1) * fn2(gas3) - fhe(gas3) * fn2(gas1)) * (fo2(gasf) * fvol - fo2(gasi) * ivol)) / det;
+
+                    const top3 = ((fn2(gas2) * fo2(gas1) - fn2(gas1) * fo2(gas2)) * (fhe(gasf) * fvol - fhe(gasi) * ivol)
+                        + (fhe(gas1) * fo2(gas2) - fhe(gas2) * fo2(gas1)) * (fn2(gasf) * fvol - fn2(gasi) * ivol)
+                        + (fhe(gas2) * fn2(gas1) - fhe(gas1) * fn2(gas2)) * (fo2(gasf) * fvol - fo2(gasi) * ivol)) / det;
+
+                    if (top1 < 0 || top2 < 0 || top3 < 0) {
+                        results.innerHTML = `<div class="error">Impossible to blend ${gasname(gasf)} with these gases!</div>`;
+                        return;
+                    }
+
+                    const newmix1 = {
+                        o2: 100 * (fo2(gasi) * ivol + fo2(gas1) * top1) / (ivol + top1),
+                        he: 100 * (fhe(gasi) * ivol + fhe(gas1) * top1) / (ivol + top1)
+                    };
+
+                    const p1 = find_p(newmix1, ivol + top1);
+
+                    const newmix2 = {
+                        o2: 100 * (fo2(gasi) * ivol + fo2(gas1) * top1 + fo2(gas2) * top2) / (ivol + top1 + top2),
+                        he: 100 * (fhe(gasi) * ivol + fhe(gas1) * top1 + fhe(gas2) * top2) / (ivol + top1 + top2)
+                    };
+
+                    const p2 = find_p(newmix2, ivol + top1 + top2);
+
+                    results.innerHTML = `
+                        Start with ${roundToOne(inputs.pi)} bar of ${gasname(gasi)}.<br>
+                        Top up with ${gasname(gas1)} up to ${roundToOne(p1)} bar and end up with ${gasname(newmix1)}.<br>
+                        Then top up with ${gasname(gas2)} up to ${roundToOne(p2)} bar and end up with ${gasname(newmix2)}.<br>
+                        Finally, top up with ${gasname(gas3)} up to ${roundToOne(inputs.pf)} bar and end up with ${gasname(gasf)}.<br>
+                        <hr>
+                        Use ${roundToOne(top1)} litres of ${gasname(gas1)}, 
+                        ${roundToOne(top2)} litres of ${gasname(gas2)} and 
+                        ${roundToOne(top3)} litres of ${gasname(gas3)} per litre of cylinder volume.
+                    `;
+                } else {
+                    // Nitrox calculation
+                    const gasi = {o2: inputs.o2i, he: 0};
+                    const gas1 = {o2: inputs.o21, he: 0};
+                    const gas2 = {o2: inputs.o23, he: 0};
+                    const gasf = {o2: inputs.o2f, he: 0};
+
+                    if (fo2(gas1) === fo2(gas2)) {
+                        results.innerHTML = '<div class="error">Cannot mix with identical gases!</div>';
+                        return;
+                    }
+
+                    const ivol = normalvolumefactor(inputs.pi, gasi);
+                    const fvol = normalvolumefactor(inputs.pf, gasf);
+
+                    const top1 = (fo2(gas2) - fo2(gasf)) / (fo2(gas2) - fo2(gas1)) * fvol
+                        - (fo2(gas2) - fo2(gasi)) / (fo2(gas2) - fo2(gas1)) * ivol;
+                    const top2 = (fo2(gas1) - fo2(gasf)) / (fo2(gas1) - fo2(gas2)) * fvol
+                        - (fo2(gas1) - fo2(gasi)) / (fo2(gas1) - fo2(gas2)) * ivol;
+
+                    if (top1 <= 0) {
+                        results.innerHTML = '<div class="error">Impossible to blend with these gases!</div>';
+                        return;
+                    }
+
+                    const newmix = {
+                        o2: 100 * (fo2(gasi) * ivol + fo2(gas1) * top1) / (ivol + top1),
+                        he: 0
+                    };
+
+                    const p1 = find_p(newmix, ivol + top1);
+
+                    results.innerHTML = `
+                        Start with ${roundToOne(inputs.pi)} bar of ${gasname(gasi)}.<br>
+                        Top up with ${gasname(gas1)} up to ${roundToOne(p1)} bar and end up with ${gasname(newmix)}.<br>
+                        Finally, top up with ${gasname(gas2)} up to ${roundToOne(inputs.pf)} bar and end up with ${gasname(gasf)}.<br>
+                        <br>
+                        Use ${roundToOne(top1)} litres of ${gasname(gas1)} and ${roundToOne(top2)} litres of ${gasname(gas2)} per litre of cylinder volume.
+                    `;
+                }
+            } catch (error) {
+                results.innerHTML = `<div class="error">Error in calculation: ${error.message}</div>`;
+            }
+        }
+
+        // Add event listeners to all inputs
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', calculateMix);
+        });
+    </script>
+</body>
+</html>
