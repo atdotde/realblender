@@ -5,4 +5,7 @@ This CGI script computes instructions to create nitrox mixes. It does take into 
 
 You can see it in action at https://thetheoreticaldiver.org/rch-cgi-bin/blender.pl .
 
+Thanks to Claude.ai, there is no also a JavaScript version. Test it on
+
+
 Let me know if you want me to extend it to trimix blending.
